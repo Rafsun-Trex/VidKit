@@ -12,12 +12,32 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
 
 
-    func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
-        // Use this method to optionally configure and attach the UIWindow `window` to the provided UIWindowScene `scene`.
-        // If using a storyboard, the `window` property will automatically be initialized and attached to the scene.
-        // This delegate does not imply the connecting scene or session are new (see `application:configurationForConnectingSceneSession` instead).
-        guard let _ = (scene as? UIWindowScene) else { return }
-    }
+    func scene(_ scene: UIScene,
+                   willConnectTo session: UISceneSession,
+                   options connectionOptions: UIScene.ConnectionOptions) {
+            guard let windowScene = scene as? UIWindowScene else { return }
+
+            // Dark appearance globally
+            let w = UIWindow(windowScene: windowScene)
+            w.overrideUserInterfaceStyle = .dark
+
+            let homeVC = HomeViewController()
+            let nav    = UINavigationController(rootViewController: homeVC)
+            nav.navigationBar.prefersLargeTitles = false
+            nav.navigationBar.tintColor = UIColor(red: 0.64, green: 0.36, blue: 1.0, alpha: 1)
+
+            // Style nav bar
+            let appearance = UINavigationBarAppearance()
+            appearance.configureWithOpaqueBackground()
+            appearance.backgroundColor = UIColor(white: 0.06, alpha: 1)
+            appearance.titleTextAttributes = [.foregroundColor: UIColor.white]
+            nav.navigationBar.standardAppearance   = appearance
+            nav.navigationBar.scrollEdgeAppearance = appearance
+
+            w.rootViewController = nav
+            window = w
+            w.makeKeyAndVisible()
+        }
 
     func sceneDidDisconnect(_ scene: UIScene) {
         // Called as the scene is being released by the system.
