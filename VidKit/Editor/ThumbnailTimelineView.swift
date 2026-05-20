@@ -30,19 +30,15 @@ final class ThumbnailTimelineView: UIView {
         self.asset       = asset
         trimStartSec     = 0
         trimEndSec       = durationSec
+        currentTimeSec   = 0
+        hasPositionedInitialContentOffset = false
         generateThumbnails()
         setNeedsLayout()
     }
 
     /// Sync the playhead without triggering delegate callbacks.
     func setCurrentTime(_ time: CMTime, animated: Bool) {
-        guard durationSec > 0 else { return }
-        let sec = CMTimeGetSeconds(time)
-        let offset = sec * pixelsPerSecond
-        // Suppress delegate during programmatic scroll
-        isSyncingFromPlayer = true
-        scrollView.setContentOffset(CGPoint(x: offset, y: 0), animated: animated)
-        isSyncingFromPlayer = false
+        scrollToTimeSec(CMTimeGetSeconds(time), animated: animated, notifyDelegate: false)
     }
 
     func setTrimStart(_ time: CMTime) {
@@ -72,10 +68,13 @@ final class ThumbnailTimelineView: UIView {
     private var durationSec:  Double  = 0
     private var trimStartSec: Double  = 0
     private var trimEndSec:   Double  = 0
+    private var currentTimeSec: Double = 0
     private var thumbCount:   Int     = 20
     private var isSyncingFromPlayer = false
     private var isDraggingLeft  = false
     private var isDraggingRight = false
+    private var hasPositionedInitialContentOffset = false
+    private var lastLayoutBoundsSize: CGSize = .zero
 
     private var pixelsPerSecond: CGFloat {
         guard durationSec > 0 else { return 1 }
@@ -222,6 +221,13 @@ final class ThumbnailTimelineView: UIView {
         // Position thumb image views inside strip
         for (i, iv) in thumbImageViews.enumerated() {
             iv.frame = CGRect(x: CGFloat(i) * thumbW, y: 0, width: thumbW, height: thumbH)
+        }
+
+        let boundsSizeChanged = lastLayoutBoundsSize != bounds.size
+        lastLayoutBoundsSize = bounds.size
+        if !hasPositionedInitialContentOffset || boundsSizeChanged {
+            scrollToTimeSec(currentTimeSec, animated: false, notifyDelegate: false)
+            hasPositionedInitialContentOffset = true
         }
 
         updateTrimHandles()
@@ -372,6 +378,37 @@ final class ThumbnailTimelineView: UIView {
         let s = Int(sec)
         return String(format: "%d:%02d", s / 60, s % 60)
     }
+
+    private func clampedTimeSec(_ sec: Double) -> Double {
+        guard sec.isFinite else { return 0 }
+        return max(0, min(durationSec, sec))
+    }
+
+    private func contentOffsetX(for timeSec: Double) -> CGFloat {
+        CGFloat(clampedTimeSec(timeSec)) * pixelsPerSecond - scrollView.contentInset.left
+    }
+
+    private func centeredTimeSec() -> Double {
+        guard durationSec > 0 else { return 0 }
+        let rawOffset = scrollView.contentOffset.x + scrollView.contentInset.left
+        return clampedTimeSec(Double(rawOffset / pixelsPerSecond))
+    }
+
+    private func scrollToTimeSec(_ sec: Double, animated: Bool, notifyDelegate: Bool) {
+        guard durationSec > 0 else { return }
+        currentTimeSec = clampedTimeSec(sec)
+        currentTimeLabel.text = formatSec(currentTimeSec)
+
+        let offset = CGPoint(x: contentOffsetX(for: currentTimeSec), y: 0)
+        if notifyDelegate {
+            scrollView.setContentOffset(offset, animated: animated)
+        } else {
+            isSyncingFromPlayer = true
+            scrollView.setContentOffset(offset, animated: animated)
+            isSyncingFromPlayer = false
+            updateTrimHandles()
+        }
+    }
 }
 
 // MARK: - UIScrollViewDelegate
@@ -394,9 +431,8 @@ extension ThumbnailTimelineView: UIScrollViewDelegate {
         updateTrimHandles()
 
         guard !isSyncingFromPlayer, durationSec > 0 else { return }
-        let rawOffset = scrollView.contentOffset.x + scrollView.contentInset.left
-        let sec = Double(rawOffset / pixelsPerSecond)
-        let clamped = max(0, min(durationSec, sec))
+        let clamped = centeredTimeSec()
+        currentTimeSec = clamped
         currentTimeLabel.text = formatSec(clamped)
 
         let time = CMTime(seconds: clamped, preferredTimescale: 600)

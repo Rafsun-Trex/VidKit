@@ -172,9 +172,10 @@ final class EditorViewController: UIViewController {
         }
     }
 
-    private func buildComposition() {
+    private func buildComposition(preservingSourceTime sourceTimeToRestore: CMTime? = nil) {
+        let sourceTimeToRestore = sourceTimeToRestore ?? currentSourceTimeForPreview()
         guard let (comp, videoComp) = compositionService.build(from: editState) else { return }
-        let restoreTime = clampedRestoreTime(player?.currentTime(), duration: comp.duration)
+        let restoreTime = clampedRestoreTime(compositionTime(forSourceTime: sourceTimeToRestore), duration: comp.duration)
         let shouldResume = player?.timeControlStatus == .playing
 
         let item = AVPlayerItem(asset: comp)
@@ -188,6 +189,7 @@ final class EditorViewController: UIViewController {
         }
         playerItem = item
         setupTimeObserver()
+        playbackControls.duration = comp.duration
         restorePreviewPlayback(to: restoreTime, resume: shouldResume, item: item)
 
         NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: nil)
@@ -207,9 +209,11 @@ final class EditorViewController: UIViewController {
         player?.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
             guard let self, self.playerItem === item, resume else { return }
             self.player?.play()
-            self.player?.rate = self.editState.speed
             self.playbackControls.isPlaying = true
         }
+        playbackControls.currentTime = time
+        timeline.setCurrentTime(sourceTime(forCompositionTime: time), animated: false)
+        playerView.updateTextVisibility(currentTime: time)
     }
 
     // MARK: – Time Observer
@@ -220,7 +224,7 @@ final class EditorViewController: UIViewController {
         timeObserver = player?.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             guard let self, !self.isScrubbing else { return }
             self.playbackControls.currentTime = time
-            self.timeline.setCurrentTime(time, animated: false)
+            self.timeline.setCurrentTime(self.sourceTime(forCompositionTime: time), animated: false)
             self.playerView.updateTextVisibility(currentTime: time)
         }
     }
@@ -230,8 +234,48 @@ final class EditorViewController: UIViewController {
     }
 
     @objc private func playerReachedEnd() {
-        player?.seek(to: editState.trimStart)
+        player?.seek(to: .zero)
         player?.play()
+    }
+
+    // MARK: – Timeline / Composition Time Mapping
+
+    private func currentSourceTimeForPreview() -> CMTime {
+        guard let player else { return editState.trimStart }
+        return sourceTime(forCompositionTime: player.currentTime())
+    }
+
+    private func sourceTime(forCompositionTime time: CMTime) -> CMTime {
+        let startSec = seconds(from: editState.trimStart)
+        let compSec = max(0, seconds(from: time))
+        let sourceSec = startSec + compSec * Double(max(editState.speed, 0.001))
+        return CMTime(seconds: clampedSourceSeconds(sourceSec), preferredTimescale: 600)
+    }
+
+    private func compositionTime(forSourceTime time: CMTime) -> CMTime {
+        let startSec = seconds(from: editState.trimStart)
+        let sourceSec = clampedSourceSeconds(seconds(from: time, fallback: startSec))
+        let speed = Double(max(editState.speed, 0.001))
+        let compSec = max(0, (sourceSec - startSec) / speed)
+        return CMTime(seconds: compSec, preferredTimescale: 600)
+    }
+
+    private func clampedSourceSeconds(_ sec: Double) -> Double {
+        let startSec = seconds(from: editState.trimStart)
+        let endSec = max(startSec, activeTrimEndSeconds())
+        return max(startSec, min(endSec, sec))
+    }
+
+    private func activeTrimEndSeconds() -> Double {
+        if CMTIME_IS_INDEFINITE(editState.trimEnd) {
+            return seconds(from: editState.asset?.duration ?? .zero)
+        }
+        return seconds(from: editState.trimEnd)
+    }
+
+    private func seconds(from time: CMTime, fallback: Double = 0) -> Double {
+        let value = CMTimeGetSeconds(time)
+        return value.isFinite ? value : fallback
     }
 
     // MARK: – Panel Management
@@ -271,6 +315,11 @@ final class EditorViewController: UIViewController {
         playerView.syncTextOverlays(editState.textOverlays)
     }
 
+    private func rebuildComposition(preservingSourceTime sourceTime: CMTime) {
+        buildComposition(preservingSourceTime: sourceTime)
+        playerView.syncTextOverlays(editState.textOverlays)
+    }
+
     // MARK: – Export
 
     private func presentExport() {
@@ -293,19 +342,22 @@ final class EditorViewController: UIViewController {
 
 extension EditorViewController: ThumbnailTimelineDelegate {
     func timeline(_ view: ThumbnailTimelineView, didScrollTo time: CMTime) {
-        guard !isScrubbing else { return }
-        player?.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
-        playbackControls.currentTime = time
+        let compositionTime = compositionTime(forSourceTime: time)
+        player?.seek(to: compositionTime, toleranceBefore: .zero, toleranceAfter: .zero)
+        playbackControls.currentTime = compositionTime
+        playerView.updateTextVisibility(currentTime: compositionTime)
     }
 
     func timeline(_ view: ThumbnailTimelineView, didChangeTrimStart time: CMTime) {
+        let sourceTime = currentSourceTimeForPreview()
         editState.trimStart = time
-        rebuildComposition()
+        rebuildComposition(preservingSourceTime: sourceTime)
     }
 
     func timeline(_ view: ThumbnailTimelineView, didChangeTrimEnd time: CMTime) {
+        let sourceTime = currentSourceTimeForPreview()
         editState.trimEnd = time
-        rebuildComposition()
+        rebuildComposition(preservingSourceTime: sourceTime)
     }
 
     func timelineDidBeginScrubbing(_ view: ThumbnailTimelineView) {
@@ -329,7 +381,6 @@ extension EditorViewController: PlaybackControlsDelegate {
             playbackControls.isPlaying = false
         } else {
             player.play()
-            player.rate = editState.speed
             playbackControls.isPlaying = true
         }
     }
@@ -371,9 +422,9 @@ extension EditorViewController: FilterPanelDelegate {
 
 extension EditorViewController: SpeedPanelDelegate {
     func speedPanel(_ panel: SpeedPanel, didChangeSpeed speed: Float) {
+        let sourceTime = currentSourceTimeForPreview()
         editState.speed = speed
-        rebuildComposition()
-        if player?.timeControlStatus == .playing { player?.rate = speed }
+        rebuildComposition(preservingSourceTime: sourceTime)
     }
 }
 
