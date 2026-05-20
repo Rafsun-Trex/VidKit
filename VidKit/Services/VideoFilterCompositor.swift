@@ -10,12 +10,34 @@ import UIKit
 
 final class VideoFilterCompositor: NSObject, AVVideoCompositing {
 
-    // State set by VideoCompositionService before use
-    var filter:        VideoFilter   = .none
-    var blurType:      BlurType      = .none
-    var blurIntensity: Float         = 8.0
-    var textOverlays:  [TextOverlay] = []
-    var videoSize:     CGSize        = .zero
+    private struct RenderSettings {
+        var filter: VideoFilter = .none
+        var blurType: BlurType = .none
+        var blurIntensity: Float = 8.0
+        var textOverlays: [TextOverlay] = []
+        var videoSize: CGSize = .zero
+    }
+
+    private static var activeSettings = RenderSettings()
+    private static let settingsLock = NSLock()
+
+    static func configure(from state: EditState, videoSize: CGSize) {
+        settingsLock.lock()
+        activeSettings = RenderSettings(
+            filter: state.filter,
+            blurType: state.blurType,
+            blurIntensity: state.blurIntensity,
+            textOverlays: state.textOverlays,
+            videoSize: videoSize
+        )
+        settingsLock.unlock()
+    }
+
+    private static func settingsSnapshot() -> RenderSettings {
+        settingsLock.lock()
+        defer { settingsLock.unlock() }
+        return activeSettings
+    }
 
     // Shared CIContext – expensive to create, so kept as a static
     private static let ciContext = CIContext(options: [.useSoftwareRenderer: false])
@@ -38,6 +60,7 @@ final class VideoFilterCompositor: NSObject, AVVideoCompositing {
     func startRequest(_ request: AVAsynchronousVideoCompositionRequest) {
         renderQueue.async { [weak self] in
             guard let self else { request.finish(with: makeError("Compositor deallocated")); return }
+            let settings = Self.settingsSnapshot()
 
             guard let trackID = request.sourceTrackIDs.first,
                   let srcBuffer = request.sourceFrame(byTrackID: trackID.int32Value) else {
@@ -47,8 +70,8 @@ final class VideoFilterCompositor: NSObject, AVVideoCompositing {
 
             // ---- CI pipeline ----
             var image = CIImage(cvPixelBuffer: srcBuffer).clampedToExtent()
-            image = self.filter.apply(to: image)
-            image = self.blurType.apply(to: image, intensity: self.blurIntensity)
+            image = settings.filter.apply(to: image)
+            image = settings.blurType.apply(to: image, intensity: settings.blurIntensity)
             image = image.cropped(to: CIImage(cvPixelBuffer: srcBuffer).extent)
 
             guard let outputBuffer = request.renderContext.newPixelBuffer() else {
@@ -59,8 +82,8 @@ final class VideoFilterCompositor: NSObject, AVVideoCompositing {
             VideoFilterCompositor.ciContext.render(image, to: outputBuffer)
 
             // ---- CoreGraphics text pass ----
-            if !self.textOverlays.isEmpty {
-                self.drawText(into: outputBuffer, at: request.compositionTime)
+            if !settings.textOverlays.isEmpty {
+                self.drawText(settings.textOverlays, into: outputBuffer, at: request.compositionTime)
             }
 
             request.finish(withComposedVideoFrame: outputBuffer)
@@ -73,7 +96,7 @@ final class VideoFilterCompositor: NSObject, AVVideoCompositing {
 
     // MARK: Text Drawing (CoreGraphics into pixel buffer)
 
-    private func drawText(into pixelBuffer: CVPixelBuffer, at time: CMTime) {
+    private func drawText(_ textOverlays: [TextOverlay], into pixelBuffer: CVPixelBuffer, at time: CMTime) {
         let t = CMTimeGetSeconds(time)
 
         CVPixelBufferLockBaseAddress(pixelBuffer, [])
