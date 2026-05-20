@@ -9,9 +9,6 @@ import UIKit
 
 final class VideoCompositionService {
 
-    // Shared compositor (holds filter / blur / text state)
-    private let compositor = VideoFilterCompositor()
-
     // MARK: Build for Playback / Export
 
     /// Returns a configured (composition, videoComposition) ready to hand to AVPlayer
@@ -82,20 +79,9 @@ final class VideoCompositionService {
         instr.layerInstructions = [layerInstr]
         videoComp.instructions   = [instr]
 
-        // Update compositor state
-        compositor.filter        = state.filter
-        compositor.blurType      = state.blurType
-        compositor.blurIntensity = state.blurIntensity
-        compositor.textOverlays  = state.textOverlays
-        compositor.videoSize     = naturalSize
-
-        // The custom compositor class is referenced by class, but AVFoundation
-        // instantiates it fresh.  We surface state through UserInfo on the composition.
-        // Instead, we store a reference for the player path and patch through
-        // the instruction's passthrough dict (see note below).
-        // For simplicity, this service is the compositor's delegate via a
-        // thread-safe singleton registry.
-        CompositorRegistry.shared.register(compositor, for: videoComp)
+        // AVFoundation creates compositor instances itself, so push the current
+        // edit settings into the thread-safe snapshot read by every instance.
+        VideoFilterCompositor.configure(from: state, videoSize: naturalSize)
 
         return (comp, videoComp)
     }
@@ -168,25 +154,5 @@ enum ExportError: LocalizedError {
         case .cancelled:         return "Export was cancelled."
         case .unknown:           return "An unknown export error occurred."
         }
-    }
-}
-
-// MARK: - Compositor Registry
-// AVFoundation instantiates the compositor class itself; we use a registry
-// keyed on the videoComposition object to pass state across.
-
-final class CompositorRegistry {
-    static let shared = CompositorRegistry()
-    private var map = [ObjectIdentifier: VideoFilterCompositor]()
-    private let lock = NSLock()
-
-    func register(_ compositor: VideoFilterCompositor, for comp: AVMutableVideoComposition) {
-        lock.lock(); defer { lock.unlock() }
-        map[ObjectIdentifier(comp)] = compositor
-    }
-
-    func compositor(for comp: AVVideoComposition) -> VideoFilterCompositor? {
-        lock.lock(); defer { lock.unlock() }
-        return map[ObjectIdentifier(comp)]
     }
 }

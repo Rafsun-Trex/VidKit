@@ -174,6 +174,9 @@ final class EditorViewController: UIViewController {
 
     private func buildComposition() {
         guard let (comp, videoComp) = compositionService.build(from: editState) else { return }
+        let restoreTime = clampedRestoreTime(player?.currentTime(), duration: comp.duration)
+        let shouldResume = player?.timeControlStatus == .playing
+
         let item = AVPlayerItem(asset: comp)
         item.videoComposition = videoComp
 
@@ -185,11 +188,28 @@ final class EditorViewController: UIViewController {
         }
         playerItem = item
         setupTimeObserver()
+        restorePreviewPlayback(to: restoreTime, resume: shouldResume, item: item)
 
         NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: nil)
         NotificationCenter.default.addObserver(self,
             selector: #selector(playerReachedEnd),
             name: .AVPlayerItemDidPlayToEndTime, object: item)
+    }
+
+    private func clampedRestoreTime(_ time: CMTime?, duration: CMTime) -> CMTime {
+        guard let time, time.isValid, duration.isValid, duration > .zero else { return .zero }
+        if time < .zero { return .zero }
+        if time > duration { return duration }
+        return time
+    }
+
+    private func restorePreviewPlayback(to time: CMTime, resume: Bool, item: AVPlayerItem) {
+        player?.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            guard let self, self.playerItem === item, resume else { return }
+            self.player?.play()
+            self.player?.rate = self.editState.speed
+            self.playbackControls.isPlaying = true
+        }
     }
 
     // MARK: – Time Observer
