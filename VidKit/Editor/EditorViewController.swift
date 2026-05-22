@@ -32,6 +32,7 @@ final class EditorViewController: UIViewController {
 
     private var activePanelView: UIView?
     private let panelContainer = UIView()
+    private var playerViewHeight: NSLayoutConstraint!
     private var panelContainerHeight: NSLayoutConstraint!
 
     // MARK: Init
@@ -105,19 +106,19 @@ final class EditorViewController: UIViewController {
         panelContainer.layer.cornerRadius = 16
         panelContainer.clipsToBounds = true
 
+        playerViewHeight = playerView.heightAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.42)
         panelContainerHeight = panelContainer.heightAnchor.constraint(equalToConstant: 0)
 
         NSLayoutConstraint.activate([
 
             // ── Player ──────────────────────────────────────────────
-            playerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
-            playerView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-            playerView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-            // 9:16 aspect keeps player proportional on any device
-            playerView.heightAnchor.constraint(equalTo: playerView.widthAnchor, multiplier: 9/16),
+            playerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 4),
+            playerView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 8),
+            playerView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),
+            playerViewHeight,
 
             // ── Timeline ────────────────────────────────────────────
-            timeline.topAnchor.constraint(equalTo: playerView.bottomAnchor, constant: 14),
+            timeline.topAnchor.constraint(equalTo: playerView.bottomAnchor, constant: 10),
             timeline.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             timeline.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             timeline.heightAnchor.constraint(equalToConstant: 92),   // thumbs + handle room

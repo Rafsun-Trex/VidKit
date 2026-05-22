@@ -73,6 +73,8 @@ final class ThumbnailTimelineView: UIView {
     private var isSyncingFromPlayer = false
     private var isDraggingLeft  = false
     private var isDraggingRight = false
+    private var trimDragStartSec: Double = 0
+    private var trimDragEndSec: Double = 0
     private var hasPositionedInitialContentOffset = false
     private var lastLayoutBoundsSize: CGSize = .zero
 
@@ -281,21 +283,21 @@ final class ThumbnailTimelineView: UIView {
     // MARK: Pan Gestures
 
     @objc private func handleLeftPan(_ gr: UIPanGestureRecognizer) {
-        let cx  = bounds.width / 2
-        let off = scrollView.contentOffset.x + scrollView.contentInset.left
-        let tx  = gr.location(in: self).x
-
         switch gr.state {
         case .began:
+            isDraggingLeft = true
+            trimDragStartSec = trimStartSec
             trimStartLabel.isHidden = false
             delegate?.timelineDidBeginScrubbing(self)
         case .changed:
-            let sec = Double((tx - cx + off) / pixelsPerSecond)
+            let deltaSec = Double(gr.translation(in: self).x / pixelsPerSecond)
+            let sec = trimDragStartSec + deltaSec
             trimStartSec = min(max(0, sec), trimEndSec - 0.2)
             updateTrimHandles()
             delegate?.timeline(self, didChangeTrimStart: CMTime(seconds: trimStartSec,
                                                                 preferredTimescale: 600))
-        case .ended, .cancelled:
+        case .ended, .cancelled, .failed:
+            isDraggingLeft = false
             trimStartLabel.isHidden = true
             delegate?.timelineDidEndScrubbing(self)
         default: break
@@ -303,21 +305,21 @@ final class ThumbnailTimelineView: UIView {
     }
 
     @objc private func handleRightPan(_ gr: UIPanGestureRecognizer) {
-        let cx  = bounds.width / 2
-        let off = scrollView.contentOffset.x + scrollView.contentInset.left
-        let tx  = gr.location(in: self).x
-
         switch gr.state {
         case .began:
+            isDraggingRight = true
+            trimDragEndSec = trimEndSec
             trimEndLabel.isHidden = false
             delegate?.timelineDidBeginScrubbing(self)
         case .changed:
-            let sec = Double((tx - cx + off) / pixelsPerSecond)
+            let deltaSec = Double(gr.translation(in: self).x / pixelsPerSecond)
+            let sec = trimDragEndSec + deltaSec
             trimEndSec = max(min(durationSec, sec), trimStartSec + 0.2)
             updateTrimHandles()
             delegate?.timeline(self, didChangeTrimEnd: CMTime(seconds: trimEndSec,
                                                               preferredTimescale: 600))
-        case .ended, .cancelled:
+        case .ended, .cancelled, .failed:
+            isDraggingRight = false
             trimEndLabel.isHidden = true
             delegate?.timelineDidEndScrubbing(self)
         default: break
@@ -396,6 +398,7 @@ final class ThumbnailTimelineView: UIView {
 
     private func scrollToTimeSec(_ sec: Double, animated: Bool, notifyDelegate: Bool) {
         guard durationSec > 0 else { return }
+        guard !isDraggingLeft, !isDraggingRight else { return }
         currentTimeSec = clampedTimeSec(sec)
         currentTimeLabel.text = formatSec(currentTimeSec)
 
