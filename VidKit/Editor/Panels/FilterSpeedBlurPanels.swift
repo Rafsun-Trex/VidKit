@@ -165,7 +165,7 @@ final class SpeedPanel: UIView {
 
         for speed in presets {
             var cfg = UIButton.Configuration.tinted()
-            cfg.title = speed == 1.0 ? "1×" : (speed < 1 ? "\(speed)×" : "\(Int(speed))×")
+            cfg.title = speed == 1.0 ? "1×" : (speed < 1 ? "\(speed)×" : "\(Float(speed))×")
             cfg.baseForegroundColor = UIColor(red: 0.64, green: 0.36, blue: 1.0, alpha: 1)
             cfg.baseBackgroundColor = UIColor(red: 0.64, green: 0.36, blue: 1.0, alpha: 1)
             cfg.cornerStyle = .capsule

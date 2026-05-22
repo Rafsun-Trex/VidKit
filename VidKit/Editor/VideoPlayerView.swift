@@ -35,7 +35,7 @@ final class VideoPlayerView: UIView {
 
     private func setup() {
         playerLayer.videoGravity = .resizeAspect
-        backgroundColor = .black
+        backgroundColor = .clear
         layer.cornerRadius = 12
         clipsToBounds = true
     }
